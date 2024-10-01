@@ -9,8 +9,7 @@ packages <- c(
   "readr",
   "dplyr",
   "tidyr",
-  "ggplot2",
-  "ggpubr",
+  "bayesplot",
   "caret",
   "footBayes",
   "mlr3measures",
@@ -30,10 +29,13 @@ invisible(lapply(packages, library, character.only = TRUE))
 #   Data                                                                    ####
 
 
-load("World_Cup/Bayesian_BTD_Ranking/RData/rank_bradley_terry.RData")
-load("World_Cup/Bayesian_BTD_Ranking/RData/wc_data_train.RData")
+load("Unique_BT_Ranking/Simple_BT/RData/rank_bradley_terry.RData")
+load("Unique_BT_Ranking/Simple_BT/RData/wc_data_train.RData")
 
-# MAD Normalization
+#rank$Median <- exp(rank$Median)/10^3
+#rank$Median <- (exp(rank$Median) - mean(exp(rank$Median)))/sd(exp(rank$Median))
+#rank$Median <- (exp(rank$Median) - min(exp(rank$Median)))/(max(exp(rank$Median)) - min(exp(rank$Median)))
+#rank$Median <- (rank$Median - mean(rank$Median))/sd(rank$Median)
 rank$Median <- (rank$Median - median(rank$Median))/mad(rank$Median)
 
 
@@ -228,7 +230,7 @@ wc_data_train_matchday7 <- data.frame(
 ##  Ranking                                                                 ####
 
 
-rank <- tibble::rowid_to_column(rank, "Position")
+rank_bt <- tibble::rowid_to_column(rank, "Position")
 wc_data_train_ML <-
   rbind(
     wc_data_train[, -7],
@@ -267,14 +269,14 @@ team_home <- match( wc_data_train_ML$home_team, teams)
 team_away <- match( wc_data_train_ML$away_team, teams)
 team1 <- team_home[1:length(wc_data_train_ML$outcome)]
 team2 <- team_away[1:length(wc_data_train_ML$outcome)]
-ranking1 <- match(wc_data_train_ML$home_team, rank$Parameter)
-ranking2 <- match(wc_data_train_ML$away_team, rank$Parameter)
+ranking1 <- match(wc_data_train_ML$home_team, rank_bt$Parameter)
+ranking2 <- match(wc_data_train_ML$away_team, rank_bt$Parameter)
 
 rank1 <- rank2 <- c()
 for (n in 1:length(team1)){
   #rank_diff[n] <- ranking[team1[1]]-ranking[team2[n]]
-  rank1[n] <- rank$Median[ranking1[n]]
-  rank2[n] <- rank$Median[ranking2[n]]
+  rank1[n] <- rank_bt$Median[ranking1[n]]
+  rank2[n] <- rank_bt$Median[ranking2[n]]
 }
 rank_diff <- rank1-rank2
 
@@ -294,7 +296,8 @@ fifa_ranking_clean <- fifa_ranking %>% select(country_full, total_points)
 fifa_ranking_clean <- fifa_ranking_clean[63707:dim(fifa_ranking)[1], ]
 colnames(fifa_ranking_clean) <- c("team_name", "ranking")
 
-# MAD Normalization 
+#fifa_ranking_clean$ranking <- (fifa_ranking_clean$ranking - mean(fifa_ranking_clean$ranking))/ sd(fifa_ranking_clean$ranking) 
+#fifa_ranking_clean$ranking <- (fifa_ranking_clean$ranking - min(fifa_ranking_clean$ranking))/(max(fifa_ranking_clean$ranking) - min(fifa_ranking_clean$ranking)) 
 fifa_ranking_clean$ranking <- (fifa_ranking_clean$ranking - median(fifa_ranking_clean$ranking))/mad(fifa_ranking_clean$ranking) 
 
 ranking <- filter(fifa_ranking_clean, fifa_ranking_clean$team_name%in%rank$Parameter )
@@ -310,6 +313,7 @@ ranking2 <- match(wc_data_train_ML$away_team, rank$team_name)
 
 rank1 <- rank2 <- c()
 for (n in 1:length(team1)){
+  #rank_diff[n] <- ranking[team1[1]]-ranking[team2[n]]
   rank1[n] <- rank$ranking[ranking1[n]]
   rank2[n] <- rank$ranking[ranking2[n]]
 }
@@ -325,38 +329,122 @@ wc_data_plot_FIFA <- filter(wc_data_plot_FIFA, date >= 6)
 #   ____________________________________________________________________________
 #   Scatterplots                                                            ####
 
-wc_data_plot <- rbind(wc_data_plot_FIFA, wc_data_plot_BT)
+# Combine the ranks datasets
+
+WC_nations <- c(wc_data_train_matchday_1$home_team,wc_data_train_matchday_1$away_team)
+country_code = c("ar", "au", "be", "br", "cm",
+                 "ca", "cr", "hr", "dk", "ec",
+                 "gb", "fr", "de", "gh", "ir",
+                 "jp", "mx", "ma", "nl", "pl",
+                 "pt", "qa", "sa", "sn", "rs",
+                 "kr", "es", "ch", "tn", "us",
+                 "uy", "gy")
 
 
-rank_plot <- ggplot(wc_data_plot, aes(x = rank1, y = rank2, color = factor(date))) +
-  facet_wrap(~rank_type, labeller = labeller(rank_type = c(BT_Rank = "Bayesian BTD", FIFA_Rank = "FIFA"))) +
-  geom_point(size = 4.5, alpha = 0.75) + 
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey30", size = 1) +  # Add a bisection line
-  scale_color_manual(
-    values = c("6" = "#D55E00", "7" = "#009E73"), 
-    name = "Stage:",  # Custom legend title
-    labels = c("Group Stage", "Knockout Stage")  
-  ) +
-  labs(x = "Rank 1",
-       y = "Rank 2",
-       color = "Stage:") +  # Label for the color legend
+
+rank_fifa <- rank %>% 
+  arrange(team_name) %>%
+  filter(team_name %in% WC_nations)
+
+
+rank_btd <- rank_bt[,c(2,4)] %>% 
+  arrange(Parameter) %>%
+  filter(Parameter %in% WC_nations)
+
+rank_bind <- cbind(country_code, rank_fifa, rank_btd[,2])
+
+colnames(rank_bind) <- c("Country_Code","Nations", "FIFA_ranking", "BTD_ranking")
+
+# Calculate correlations
+pearson_cor <- cor(rank_bind$FIFA_ranking, rank_bind$BTD_ranking, method = "pearson")
+spearman_cor <- cor(rank_bind$FIFA_ranking, rank_bind$BTD_ranking, method = "spearman")
+kendall_cor <- cor(rank_bind$FIFA_ranking, rank_bind$BTD_ranking, method = "kendall")
+
+cor_text <- paste(
+  " Pearson: ", format(round(pearson_cor, 2), nsmall = 2), "\n",
+  "  Spearman: ", format(round(spearman_cor, 2), nsmall = 2), "\n",
+  "Kendall: ", format(round(kendall_cor, 2), nsmall = 2)
+)
+
+# Create the scatterplot with flags
+ranks_comp <- ggplot(rank_bind, aes(x = BTD_ranking, y = FIFA_ranking, country = country_code)) +
+  geom_flag(aes(country = country_code), size = 8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey30", size = 1) +
+  labs(x = "Normalized Bayesian BTD relative log-strengths",
+       y = "Normalized FIFA points") +
   theme_bw(base_size = 18) +
   theme(
     legend.title = element_text(size = 16, face = "bold"),
     legend.text = element_text(size = 15),
-    legend.position = "top",  
-    text = element_text(size = 15),  
+    legend.position = "top",  # Adjust the position of the legend to the right
+    text = element_text(size = 15),  # General text size for the plot
     axis.title.x = element_text(size = 20),
     axis.title.y = element_text(size = 20),
     axis.text.y = element_text(size = 18),
     axis.text.x = element_text(size = 18),
     strip.text.x = element_text(size = 18)
-  )
+  ) +
+  xlim(0, 2.2) + 
+  ylim(0, 2.2) +
+  annotate("text", x = 0.02, y = 2.1, label = cor_text, hjust = 0.35, size = 6, color = "black")
+
+# Print the plot
+print(ranks_comp)
+
+
+
+ggsave(filename = "ranks_comp_WC_MAD.pdf",path = "Plots", plot = ranks_comp,
+       width = 12, height = 10, device='pdf', dpi=500, useDingbats = FALSE)
+
+
+
+
+
+wc_data_plot <- rbind(wc_data_plot_FIFA, wc_data_plot_BT)
+
+
+# Enhanced ggplot with manual color, legend adjustments, bisection line, and larger axis text and labels
+rank_plot <- ggplot(wc_data_plot, aes(x = rank1, y = rank2, color = factor(date), shape = factor(date))) +
+  facet_wrap(~rank_type, labeller = labeller(rank_type = c(BT_Rank = "Bayesian BTD", FIFA_Rank = "FIFA"))) +
+  geom_point(size = 4.5, alpha = 0.75) +  # Adjust size and alpha of points
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey30", size = 1) +  # Add a bisection line
+  scale_color_manual(
+    values = c("6" = "#D55E00", "7" = "#009E73"),  # Assign custom colors to the factor levels 6 and 7
+    name = "Stage:",  # Custom legend title
+    labels = c("Group Stage", "Knockout Stage")  # Custom labels for the legend elements corresponding to 6 and 7
+  ) +
+  scale_shape_manual(
+    values = c("6" = 16, "7" = 17),  # Assign custom shapes to the factor levels 6 and 7 (16 is circle, 17 is triangle)
+    name = "Stage:",  # Custom legend title
+    labels = c("Group Stage", "Knockout Stage")  # Custom labels for the legend elements corresponding to 6 and 7
+  ) +
+  labs(x = "Relative Strength Team 1",
+       y = "Relative Strength Team 2",
+       color = "Stage:",
+       shape = "Stage:") +  # Labels for the color and shape legends
+  theme_bw(base_size = 18) +
+  theme(
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 15),
+    legend.position = "top",  # Adjust the position of the legend to the top
+    text = element_text(size = 15),  # General text size for the plot
+    axis.title.x = element_text(size = 20),
+    axis.title.y = element_text(size = 20),
+    axis.text.y = element_text(size = 18),
+    axis.text.x = element_text(size = 18),
+    strip.text.x = element_text(size = 18)
+  ) +
+  scale_x_continuous(limits = c(-0.3, 2)) +  # Set x-axis limits
+  scale_y_continuous(limits = c(-0.3, 2))  
+
+print(rank_plot)
 
 
 ggsave(filename = "rank_plot_WC_MAD.pdf",path = "Plots", plot = rank_plot,
        width = 15, height = 10, device='pdf', dpi=500, useDingbats = FALSE)
 
+# ggsave(filename = "rank_plot_WC_MAD.jpeg",path = "Plots", plot = rank_plot,
+#        width = 15, height = 10, device='jpeg', dpi=200)
 
 #   ____________________________________________________________________________
 #   Box-Plots Rank Difference                                               ####
@@ -377,7 +465,20 @@ data <- data.frame(
                 labels = c("Group Stage", "Knockout Stage"))
 )
 
+# Checking the first few rows of the data frame
+head(data)
 
+var(wc_data_plot_FIFA$rank_diff[wc_data_plot_FIFA$date==7])
+
+var(wc_data_plot_BT$rank_diff[wc_data_plot_BT$date==7])
+
+var(wc_data_plot_FIFA$rank_diff[wc_data_plot_FIFA$date==6])
+
+var(wc_data_plot_BT$rank_diff[wc_data_plot_BT$date==6])
+
+
+
+library(ggplot2)
 
 # Plotting with custom colors and faceting by date with renamed facets
 box_plot <- ggplot(data, aes(x = Group, y = RankDiff, fill = Group)) +
@@ -385,7 +486,7 @@ box_plot <- ggplot(data, aes(x = Group, y = RankDiff, fill = Group)) +
   scale_fill_manual(values = c("FIFA" = "deepskyblue3", "Bayesian BTD" = "firebrick4"), name = "Ranking System:") +
   facet_wrap(~Date) +  # Faceting by Date with custom names
   xlab("Ranking System") +
-  ylab("Rank Difference") +
+  ylab("Relative Strength Difference") +
   scale_y_continuous(breaks = seq(from = -2, to = ceiling(max(data$RankDiff)), by = 0.5)) +
   theme_bw(base_size = 18) +
   theme(
@@ -398,7 +499,9 @@ box_plot <- ggplot(data, aes(x = Group, y = RankDiff, fill = Group)) +
     axis.text.y = element_text(size = 18),
     axis.text.x = element_text(size = 18),
     strip.text.x = element_text(size = 18)
-  )
+  ) +
+  scale_y_continuous(limits = c(-1.5, 2))  
+
 
 ggsave(filename = "box_plot_WC_MAD.pdf",path = "Plots", plot = box_plot,
        width = 15, height = 10, device='pdf', dpi=500, useDingbats = FALSE)
