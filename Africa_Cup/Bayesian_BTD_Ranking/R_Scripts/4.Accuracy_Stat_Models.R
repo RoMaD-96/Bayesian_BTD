@@ -2,14 +2,10 @@
 #   Library                                                                 ####
 
 packages <- c(
-  "loo",
   "rstan",
-  "caret",
-  "bpcs",
   "readr",
-  "dplyr",
-  "tidyr",
-  "footBayes")
+  "dplyr"
+)
 
 # Install packages not yet installed
 installed_packages <- packages %in% rownames(installed.packages())

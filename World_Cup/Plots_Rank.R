@@ -465,7 +465,6 @@ data <- data.frame(
                 labels = c("Group Stage", "Knockout Stage"))
 )
 
-# Checking the first few rows of the data frame
 head(data)
 
 var(wc_data_plot_FIFA$rank_diff[wc_data_plot_FIFA$date==7])

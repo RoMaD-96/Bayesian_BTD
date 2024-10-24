@@ -13,7 +13,8 @@ packages <- c(
   "caret",
   "footBayes",
   "mlr3measures",
-  "readxl")
+  "readxl"
+)
 
 # Install packages not yet installed
 installed_packages <- packages %in% rownames(installed.packages())
@@ -21,109 +22,113 @@ if (any(installed_packages == FALSE)) {
   install.packages(packages[!installed_packages])
 }
 
-# Packages loading
+# Load packages
 invisible(lapply(packages, library, character.only = TRUE))
 
 
 #   ____________________________________________________________________________
 #   Bradley-Terry Ranking and Training Set                                  ####
 
-load("Africa_Cup/Bayesian_BTD_Ranking/RData/wc_data_train.RData")
+# Load training data
+load("Africa_Cup/Bayesian_BTD_Ranking/RData/ac_data_train.RData")
 
+# Read and normalize FIFA rankings
 fifa_ranking_clean <- read_excel("Data/ranking_fifa_dec_2023.xlsx")
-
-# MAD normalization
-fifa_ranking_clean$ranking <- (fifa_ranking_clean$ranking-median(fifa_ranking_clean$ranking))/mad(fifa_ranking_clean$ranking)
-
+fifa_ranking_clean$ranking <- (fifa_ranking_clean$ranking - median(fifa_ranking_clean$ranking)) / mad(fifa_ranking_clean$ranking)
 rank <- fifa_ranking_clean
 
-times <- substr(wc_data_train$date, 1, 6)
+# Process dates in training data
+times <- substr(ac_data_train$date, 1, 6)
 times <- as.factor(times)
-levels(times) <- c(1:length(levels(times)))
-wc_data_train$date <- as.numeric(as.vector(times))
-wc_data_train <- arrange(wc_data_train, date)
+levels(times) <- 1:length(levels(times))
+ac_data_train$date <- as.numeric(as.character(times))
+ac_data_train <- arrange(ac_data_train, date)
+
 
 #   ____________________________________________________________________________
 #   Machine Learning Function                                             ####
 
-
-ML_algorithms <- function(stage_train, stage_test){
+ML_algorithms <- function(stage_train, stage_test) {
   
-  # Random forest
-  random_forest <- train(as.factor(outcome) ~ rank1+rank2, 
-               data = stage_train,
-               method = "rf")
+  # Random Forest
+  random_forest <- train(
+    outcome ~ rank1 + rank2,
+    data = stage_train,
+    method = "rf"
+  )
   random_forest_pred <- predict(random_forest, stage_test)
   random_forest_pred_prob <- predict(random_forest, stage_test, type = "prob")
-  
-  random_forest_mat <- confusionMatrix(random_forest_pred, as.factor(stage_test$outcome))
-  
-  brier_random_forest <- mbrier(as.factor(stage_test$outcome), as.matrix(random_forest_pred_prob))
-  
+  random_forest_mat <- confusionMatrix(random_forest_pred, stage_test$outcome)
+  brier_random_forest <- mbrier(stage_test$outcome, as.matrix(random_forest_pred_prob))
   
   # Bagged CART
-  bag_CART <- train(as.factor(outcome) ~ rank1+rank2, 
-               data = stage_train, 
-               method = "treebag")
+  bag_CART <- train(
+    outcome ~ rank1 + rank2,
+    data = stage_train,
+    method = "treebag"
+  )
   bag_CART_pred <- predict(bag_CART, stage_test)
   bag_CART_pred_prob <- predict(bag_CART, stage_test, type = "prob")
-  bag_CART_mat <- confusionMatrix(bag_CART_pred, as.factor(stage_test$outcome))
+  bag_CART_mat <- confusionMatrix(bag_CART_pred, stage_test$outcome)
+  brier_bag_CART <- mbrier(stage_test$outcome, as.matrix(bag_CART_pred_prob))
   
-  brier_bag_CART <- mbrier(as.factor(stage_test$outcome), as.matrix(bag_CART_pred_prob))
-  
-
   # MARS
-  mars<- train(as.factor(outcome) ~ rank1+rank2, 
-              data = stage_train, 
-              method = "gcvEarth")
+  mars <- train(
+    outcome ~ rank1 + rank2,
+    data = stage_train,
+    method = "gcvEarth"
+  )
   mars_pred <- predict(mars, stage_test)
   mars_pred_prob <- predict(mars, stage_test, type = "prob")
-  mars_mat <- confusionMatrix(mars_pred, as.factor(stage_test$outcome))
+  mars_mat <- confusionMatrix(mars_pred, stage_test$outcome)
+  brier_mars <- mbrier(stage_test$outcome, as.matrix(mars_pred_prob))
   
-  brier_mars <- mbrier(as.factor(stage_test$outcome), as.matrix(mars_pred_prob))
-  
-  
-  # Neural network
-  neural_net<- train(as.factor(outcome) ~ rank1+rank2, 
-              data = stage_train, 
-              method = "nnet")
+  # Neural Network
+  neural_net <- train(
+    outcome ~ rank1 + rank2,
+    data = stage_train,
+    method = "nnet"
+  )
   neural_net_pred <- predict(neural_net, stage_test)
   neural_net_pred_prob <- predict(neural_net, stage_test, type = "prob")
-  neural_net_mat <- confusionMatrix(neural_net_pred, as.factor(stage_test$outcome))
-  accuracy <- as.vector(c(random_forest_mat$overall[1], bag_CART_mat$overall[1],
-                          mars_mat$overall[1], neural_net_mat$overall[1]))
+  neural_net_mat <- confusionMatrix(neural_net_pred, stage_test$outcome)
+  brier_neural_net <- mbrier(stage_test$outcome, as.matrix(neural_net_pred_prob))
   
-  brier_neural_net <- mbrier(as.factor(stage_test$outcome), as.matrix(neural_net_pred_prob))
+  # Collect accuracies
+  accuracy <- c(
+    random_forest_mat$overall["Accuracy"],
+    bag_CART_mat$overall["Accuracy"],
+    mars_mat$overall["Accuracy"],
+    neural_net_mat$overall["Accuracy"]
+  )
   
+  # Return list of Brier scores and accuracies
   list_brier_acc <- list(
-      brier_random_forest = brier_random_forest,
-      brier_bag_CART = brier_bag_CART,
-      brier_mars = brier_mars,
-      brier_neural_net = brier_neural_net,
-      accuracy = accuracy
-    )
+    brier_random_forest = brier_random_forest,
+    brier_bag_CART = brier_bag_CART,
+    brier_mars = brier_mars,
+    brier_neural_net = brier_neural_net,
+    accuracy = accuracy
+  )
   
   return(list_brier_acc)
 }
 
 
-
 #   ____________________________________________________________________________
 #   Machine Learning Algorithm                                              ####
-
 
 ##  ............................................................................
 ##  True Results                                                            ####
 
-
 ### True Results Match Day 1
 
 ngames_matchday1 <- 12
-wc_data_train_matchday_1 <- data.frame(
+ac_data_train_matchday1 <- data.frame(
   date = rep(length(levels(times)) + 1, ngames_matchday1),
   home_team = c(
     "Ivory Coast",
-    "Nigeria" ,
+    "Nigeria",
     "Egypt",
     "Ghana",
     "Senegal",
@@ -135,7 +140,6 @@ wc_data_train_matchday_1 <- data.frame(
     "Morocco",
     "DR Congo"
   ),
-  
   away_team = c(
     "Guinea-Bissau",
     "Equatorial Guinea",
@@ -150,7 +154,6 @@ wc_data_train_matchday_1 <- data.frame(
     "Tanzania",
     "Zambia"
   ),
-  
   home_score = c(2, 1, 2, 1, 3, 1, 1, 1, 0, 2, 3, 1),
   away_score = c(0, 1, 2, 2, 0, 1, 1, 0, 1, 0, 0, 1),
   tournament = rep("Africa Cup 2024", ngames_matchday1)
@@ -159,7 +162,7 @@ wc_data_train_matchday_1 <- data.frame(
 ### True Results Match Day 2
 
 ngames_matchday2 <- 12
-wc_data_train_matchday2 <- data.frame(
+ac_data_train_matchday2 <- data.frame(
   date = rep(length(levels(times)) + 1, ngames_matchday2),
   home_team = c(
     "Equatorial Guinea",
@@ -175,7 +178,6 @@ wc_data_train_matchday2 <- data.frame(
     "Morocco",
     "Zambia"
   ),
-  
   away_team = c(
     "Guinea-Bissau",
     "Nigeria",
@@ -190,16 +192,15 @@ wc_data_train_matchday2 <- data.frame(
     "DR Congo",
     "Tanzania"
   ),
-  
   home_score = c(4, 0, 2, 3, 3, 1, 2, 2, 1, 4, 1, 1),
   away_score = c(2, 1, 2, 0, 1, 0, 2, 3, 1, 0, 1, 1),
   tournament = rep("Africa Cup 2024", ngames_matchday2)
 )
 
+### True Results Match Day 3
 
-### True Results Matchday 3
 ngames_matchday3 <- 12
-wc_data_train_matchday3 <- data.frame(
+ac_data_train_matchday3 <- data.frame(
   date = rep(length(levels(times)) + 1, ngames_matchday3),
   home_team = c(
     "Equatorial Guinea",
@@ -215,7 +216,6 @@ wc_data_train_matchday3 <- data.frame(
     "Tanzania",
     "Zambia"
   ),
-  
   away_team = c(
     "Ivory Coast",
     "Nigeria",
@@ -230,132 +230,119 @@ wc_data_train_matchday3 <- data.frame(
     "DR Congo",
     "Morocco"
   ),
-  
   home_score = c(4, 0, 2, 2, 2, 0, 2, 1, 0, 0, 0, 0),
   away_score = c(0, 1, 2, 2, 3, 2, 0, 0, 0, 0, 0, 1),
   tournament = rep("Africa Cup 2024", ngames_matchday3)
 )
 
-
 ### Round of 16
 
 ngames_matchday4 <- 8
-wc_data_train_matchday4 <- data.frame(
-  date = rep(length(levels(times))+2, ngames_matchday4),
-  home_team = c("Angola", "Nigeria",
-                "Equatorial Guinea", "Egypt", "Cape Verde", "Senegal", 
-                "Mali", "Morocco"),
-  
-  away_team = c("Namibia", "Cameroon", 
-                "Guinea", "DR Congo", "Mauritania",
-                "Ivory Coast", "Burkina Faso", "South Africa"),
-  
-  home_score = c(3,2,0,1,1,1,2,0),
-  away_score = c(0,0,1,1,0,1,1,2),
-  tournament = rep("Africa Cup 2024", ngames_matchday4))
+ac_data_train_matchday4 <- data.frame(
+  date = rep(length(levels(times)) + 2, ngames_matchday4),
+  home_team = c(
+    "Angola", "Nigeria",
+    "Equatorial Guinea", "Egypt",
+    "Cape Verde", "Senegal", 
+    "Mali", "Morocco"
+  ),
+  away_team = c(
+    "Namibia", "Cameroon",
+    "Guinea", "DR Congo",
+    "Mauritania", "Ivory Coast",
+    "Burkina Faso", "South Africa"
+  ),
+  home_score = c(3, 2, 0, 1, 1, 1, 2, 0),
+  away_score = c(0, 0, 1, 1, 0, 1, 1, 2),
+  tournament = rep("Africa Cup 2024", ngames_matchday4)
+)
 
-
-
-### QUARTER FINALS
+### Quarter Finals
 
 ngames_matchday5 <- 4
-wc_data_train_matchday5 <- data.frame(
-  date = rep(length(levels(times))+2, ngames_matchday5),
-  home_team = c("Nigeria", "DR Congo",
-                "Mali", "Cape Verde"),
-  
-  away_team = c("Angola", "Guinea", 
-                "Ivory Coast", "South Africa"),
-  
-  home_score = c(1,3,1,0),
-  away_score = c(0,1,2,0),
-  tournament = rep("Africa Cup 2024", ngames_matchday5))
+ac_data_train_matchday5 <- data.frame(
+  date = rep(length(levels(times)) + 2, ngames_matchday5),
+  home_team = c(
+    "Nigeria", "DR Congo",
+    "Mali", "Cape Verde"
+  ),
+  away_team = c(
+    "Angola", "Guinea", 
+    "Ivory Coast", "South Africa"
+  ),
+  home_score = c(1, 3, 1, 0),
+  away_score = c(0, 1, 2, 0),
+  tournament = rep("Africa Cup 2024", ngames_matchday5)
+)
 
-### SEMIFINALS
+### Semi Finals
 
 ngames_matchday6 <- 2        
-wc_data_train_matchday6 <- data.frame(
-  date = rep(length(levels(times))+2, ngames_matchday6),
-  home_team = c( "Nigeria", "Ivory Coast"),
-  away_team = c("South Africa" ,"DR Congo"  ),
-  home_score = c(1,1),
-  away_score = c(1,0),
-  tournament = rep("Africa Cup 2024", ngames_matchday6))
+ac_data_train_matchday6 <- data.frame(
+  date = rep(length(levels(times)) + 2, ngames_matchday6),
+  home_team = c("Nigeria", "Ivory Coast"),
+  away_team = c("South Africa", "DR Congo"),
+  home_score = c(1, 1),
+  away_score = c(1, 0),
+  tournament = rep("Africa Cup 2024", ngames_matchday6)
+)
 
-### FINAL
+### Final
 
 ngames_matchday7 <- 2        
-wc_data_train_matchday7 <- data.frame(
-  date = rep(length(levels(times))+2, ngames_matchday7),
-  home_team = c( "South Africa", "Nigeria"),
+ac_data_train_matchday7 <- data.frame(
+  date = rep(length(levels(times)) + 2, ngames_matchday7),
+  home_team = c("South Africa", "Nigeria"),
   away_team = c("DR Congo", "Ivory Coast"),
-  home_score = c(0,1),
-  away_score = c(0,2),
-  tournament = rep("Africa Cup 2024", ngames_matchday7))
+  home_score = c(0, 1),
+  away_score = c(0, 2),
+  tournament = rep("Africa Cup 2024", ngames_matchday7)
+)
+
 
 ##  ............................................................................
 ##  Ranking                                                                 ####
 
-
+# Add position to rankings
 rank <- tibble::rowid_to_column(rank, "Position")
-wc_data_train_ML <-
-  rbind(
-    wc_data_train[, -7],
-    wc_data_train_matchday_1,
-    wc_data_train_matchday2,
-    wc_data_train_matchday3,
-    wc_data_train_matchday4,
-    wc_data_train_matchday5,
-    wc_data_train_matchday6,
-    wc_data_train_matchday7
-  )
 
-outcome <- c(rep(NA,length(wc_data_train_ML$home_team)))
+# Combine all match data into a single data frame
+ac_data_train_ML <- rbind(
+  ac_data_train[, -7],
+  ac_data_train_matchday1,
+  ac_data_train_matchday2,
+  ac_data_train_matchday3,
+  ac_data_train_matchday4,
+  ac_data_train_matchday5,
+  ac_data_train_matchday6,
+  ac_data_train_matchday7
+)
 
-for (i in 1:length(wc_data_train_ML$home_team)) {
-  if (wc_data_train_ML$home_score[i] > wc_data_train_ML$away_score[i]){
-    outcome[i] <- 1
-  }
-  else if (wc_data_train_ML$home_score[i] < wc_data_train_ML$away_score[i]){
-    outcome[i] <- 3
-  }
-  else {
-    outcome[i] <- 2
-  }
-}
+# Compute match outcomes: 1 = home win, 2 = draw, 3 = away win
+ac_data_train_ML$outcome <- as.factor(ifelse(
+  ac_data_train_ML$home_score > ac_data_train_ML$away_score, 1,
+  ifelse(ac_data_train_ML$home_score < ac_data_train_ML$away_score, 3, 2)
+))
 
-outcome <- as.factor(outcome)
-wc_data_train_ML <- as_tibble(cbind(wc_data_train_ML,outcome))
-wc_data_train_ML <- wc_data_train_ML %>% relocate(outcome, .before=tournament)
+# Relocate 'outcome' column before 'tournament'
+ac_data_train_ML <- ac_data_train_ML %>% relocate(outcome, .before = tournament)
 
+# Map team names to their rankings
+ranking_lookup <- setNames(rank$ranking, rank$team_name)
+ac_data_train_ML$rank1 <- ranking_lookup[ac_data_train_ML$home_team]
+ac_data_train_ML$rank2 <- ranking_lookup[ac_data_train_ML$away_team]
+ac_data_train_ML$rank_diff <- ac_data_train_ML$rank1 - ac_data_train_ML$rank2
 
-teams <- unique(wc_data_train_ML$home_team)
-team_home <- match( wc_data_train_ML$home_team, teams)
-team_away <- match( wc_data_train_ML$away_team, teams)
-team1 <- team_home[1:length(wc_data_train_ML$outcome)]
-team2 <- team_away[1:length(wc_data_train_ML$outcome)]
-ranking1 <- match(wc_data_train_ML$home_team, rank$team_name)
-ranking2 <- match(wc_data_train_ML$away_team, rank$team_name)
-
-rank1 <- rank2 <- c()
-for (n in 1:length(team1)){
-  rank1[n] <- rank$ranking[ranking1[n]]
-  rank2[n] <- rank$ranking[ranking2[n]]
-}
-rank_diff <- rank1-rank2
-
-wc_data_train_ML <- cbind(wc_data_train_ML,rank1,rank2,rank_diff)
 
 ##  ............................................................................
 ##  Group Stages                                                            ####
 
-train_set_GS <- filter(wc_data_train_ML,wc_data_train_ML$date<7) 
-test_set_GS <-filter(wc_data_train_ML,wc_data_train_ML$date==7) 
+train_set_GS <- filter(ac_data_train_ML, date < 7) 
+test_set_GS <- filter(ac_data_train_ML, date == 7)
 
 print("Doing GS using FIFA")
 
 set.seed(1111)
-
 ML_pred_GS <- ML_algorithms(train_set_GS, test_set_GS)
 
 save(ML_pred_GS, file = "Africa_Cup/Fifa_Ranking/RData/ML_pred_GS.RData")
@@ -364,8 +351,8 @@ save(ML_pred_GS, file = "Africa_Cup/Fifa_Ranking/RData/ML_pred_GS.RData")
 ##  ............................................................................
 ##  Knockout Stages                                                         ####
 
-train_set_KS <-  filter(wc_data_train_ML,wc_data_train_ML$date<8)
-test_set_KS <- filter(wc_data_train_ML,wc_data_train_ML$date==8)
+train_set_KS <- filter(ac_data_train_ML, date < 8)
+test_set_KS <- filter(ac_data_train_ML, date == 8)
 
 print("Doing KS using FIFA")
 
@@ -373,5 +360,4 @@ set.seed(1111)
 ML_pred_KS <- ML_algorithms(train_set_KS, test_set_KS)
 
 save(ML_pred_KS, file = "Africa_Cup/Fifa_Ranking/RData/ML_pred_KS.RData")
-
 

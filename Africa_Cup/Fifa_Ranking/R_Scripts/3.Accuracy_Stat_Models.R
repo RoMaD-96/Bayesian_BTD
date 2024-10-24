@@ -2,14 +2,11 @@
 #   Library                                                                 ####
 
 packages <- c(
-  "loo",
   "rstan",
-  "caret",
-  "bpcs",
   "readr",
-  "dplyr",
-  "tidyr",
-  "footBayes")
+  "dplyr"
+)
+
 
 # Install packages not yet installed
 installed_packages <- packages %in% rownames(installed.packages())
@@ -271,6 +268,7 @@ brier_groupstage_KS <- brier_score(diag_inf_biv_pois_KS,
                                         wc_data_train_KS)
 
 ### Brier GS KS 
+
 tab_brier_GS_KS <-
   cbind(
     lapply(brier_groupstage_GS, round,3),
